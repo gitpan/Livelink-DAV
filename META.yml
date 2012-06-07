@@ -1,5 +1,5 @@
 ---
-abstract: 'Perl extension for Perl extension for providing a Opentext Livelink EWS WebDAV connecter instance for CopyTree::VendorProof.'
+abstract: 'Perl extension for providing a Opentext Livelink EWS WebDAV connecter instance for CopyTree::VendorProof.'
 author:
   - 'dbmolester de gmail'
 build_requires:
@@ -28,4 +28,4 @@ requires:
   MooseX::NonMoose: 0.22
   Term::ReadKey: 2.3
   namespace::autoclean: 0.13
-version: 0.0012
+version: 0.0013

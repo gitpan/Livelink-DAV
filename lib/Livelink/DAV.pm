@@ -4,7 +4,7 @@ use 5.008000;
 use strict;
 use warnings;
 
-our $VERSION = '0.0012';
+our $VERSION = '0.0013';
 
 use namespace::autoclean; #code hygene,
 use HTTP::DAV;
@@ -263,8 +263,12 @@ sub write_from_memory{
 	my $binref=shift; #refernce to a scala already
 	my $dest=shift;
 	return unless $self->pathcheck($dest);
+	unless ($self->is_fd($dest) eq 'f' or 'pd'){
+		Carp::carp("write_from_memory should have 'f' or 'pd' destination\n");
+		return;
+	}
 	my $dav=$self->enodav;
-	$dav->put(-local=>$binref, -url=>$dest);
+	$dav->put(-local=>$binref, -url=>$dest) or Carp::carp("HTTP::DAV put failed, [".$dav->message()."]\n");
 }
 
 sub read_into_memory{
@@ -286,9 +290,15 @@ sub copy_local_files{
 	if ($self->pathcheck($source) + $self->pathcheck($dest) !=2){
 		Carp::cluck("please do double check your Livelink::DAV file names\n");
 		return;
-	}		
+	}
+	my $sourcetest = $self->is_fd($source);
+	#do not handle dir copies
+	#need to explicitly state this since DAV module is powerful enough to handle this,
+	#but we are writing methods for the weakest system
+	return if ($sourcetest ne 'f');		
 	my $test = $self->is_fd($dest);
 	if ($test ne 'pd') {
+	#contains case of '0', 'f' or 'd'
 		if ($test eq '0'){
 			if ($dest=~m/\//){
 				Carp::cluck("cannot copy to $dest whose parent does not exist, does nothing\n");
@@ -299,12 +309,20 @@ sub copy_local_files{
 				return;
 			}
 		}
-		else{
-			Carp::cluck("dest already exists, does nothing\n");
+		elsif ($test eq 'd') {
+			Carp::cluck("dest is 'd', not handling this case. does nothing\n");
+			return;
 		}
-		return;
+		elsif ($test eq 'f'){
+			Carp::carp("dest exists as file, overwriting\n");
+			$dav->copy(-url=>$source, -dest=>$dest, -depth=>0, -overwrite=>1) or Carp::cluck ("Livelink::DAV move local files failed\n".$dav->message); 
+
+		}
 	}
-	$dav->copy(-url=>$source, -dest=>$dest, -overwrite=>1) or Carp::cluck ("Livelink::DAV move local files failed\n".$dav->message); 
+	#$test is 'pd'
+	else {
+		$dav->copy(-url=>$source, -dest=>$dest, -depth=>0,-overwrite=>1) or Carp::cluck ("Livelink::DAV move local files failed\n".$dav->message); 
+	}	
 
 	
 }
@@ -352,9 +370,9 @@ __END__
 
 =head1 NAME
 
-Livelink::DAV - Perl extension for Perl extension for providing a Opentext Livelink EWS WebDAV connecter instance for CopyTree::VendorProof.
+Livelink::DAV - Perl extension for providing a Opentext Livelink EWS WebDAV connecter instance for CopyTree::VendorProof.
 
-This module provides CopyTree::VendorProof a connector instance with methods to deal with remote Livelink EWS WebDAV file operations.
+This module provides a new [sic.] contructor and necessary subclass methods for CopyTree::VendorProof in order to deal with remote Livelink EWS WebDAV file operations.
 
 What?
 
@@ -394,7 +412,7 @@ then for llddav use:
 
 	$llobj->llduserp('password');
 
-As of this writing, only simple authentication has been tested, though simple authentication over ssl (https) should work too.
+As of this writing, only simple authentication has been tested, though with great imagination, simple authentication over ssl (https) should work too.
 
 To add a source or destination item to a CopyTree::VendorProof instance:
    my $ctvp_inst = CopyTree::VendorProof ->new;

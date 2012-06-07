@@ -9,10 +9,11 @@ use strict;
 use warnings;
 
 #use Test::More 'no_plan';
-use Test::More tests=>37;
+use Test::More tests=>62;
 use Data::Dumper;
 use MIME::Base64 ();
 #use Test::More tests=>9;
+#test number 1-3
 BEGIN { use_ok('Livelink::DAV') };
 BEGIN { use_ok('CopyTree::VendorProof') };
 BEGIN { use_ok('Term::ReadKey') };
@@ -32,7 +33,7 @@ while(<$config_fh>) {
 close $config_fh;
 SKIP:{
 
-skip 'skipping online tests', 34 if (!$config{'live_tests'});
+skip 'skipping online tests', 59 if (!$config{'live_tests'});
 
 
    my $cpobj = CopyTree::VendorProof->new;
@@ -136,11 +137,17 @@ skip 'skipping online tests', 34 if (!$config{'live_tests'});
    isa_ok ($davobjtest, "HTTP::DAV", 'enodav returns HTTP::DAV');
 
 	diag ("\n**cust_rmdir / cust_mkdir tests**\n");
+	
 
 	$livelink_inst->cust_rmdir ($livelinkperm."/testdir");
+	#test number 9  (in skip block)
 	is ($livelink_inst->cust_rmdir ($livelinkperm."/testdir"),'',"cust_rmdir returns nothing even if dir does not exist");
+
+
 	
-	diag ("\n**is_fd method checks**\n");
+	diag ("\n**is_fd method checks, more or less includes cust_mkdir checks**\n");
+
+
 
 	isnt ($livelink_inst->is_fd($livelinkperm."/testdir"), 'd', "make sure testdir under $livelinkperm does not exist");
 	$livelink_inst ->cust_mkdir($config{livelinkperm}."/testdir");
@@ -153,16 +160,76 @@ skip 'skipping online tests', 34 if (!$config{'live_tests'});
 	#makes sure that this does not overwrite prev content, fdls later should show all above items
 	$livelink_inst ->cust_mkdir($config{livelinkperm}."/testdir");
 
+
+
 	diag ("\n***write_from_mem / read_from_mem, txt mode***\n");
+
+
 	
+	my $testroot=$config{livelinkperm}."/testdir";
 	my $content = "some test content\n2nd line\n";
 	$livelink_inst ->write_from_memory(\$content, $livelinkperm."/testdir/test_write_from_memory");
+	#test number 15 (in skip block)
 	is ($livelink_inst->is_fd($livelinkperm."/testdir/test_write_from_memory"), 'f', "wrote a fle from memory to site $livelinkperm/testdir/test_write_from_memory\n");
 	my $content2 = "another test content\n2nd line\n";
 	$livelink_inst ->write_from_memory(\$content2, $livelinkperm."/testdir/test_write_from_memory2.txt");
 	is ($livelink_inst->is_fd($livelinkperm."/testdir/test_write_from_memory2.txt"), 'f', "wrote a windows safe file (.txt) from memory to site $livelinkperm/testdir/test_write_from_memory2.txt\n");
 	
-	is (${ $livelink_inst -> read_into_memory($livelinkperm."/testdir/test_write_from_memory") }, "some test content\n2nd line\n", "read from $livelinkperm/testdir/test_write_from_memory\n");
+	is (${ $livelink_inst -> read_into_memory($livelinkperm."/testdir/test_write_from_memory") }, $content, "read from $livelinkperm/testdir/test_write_from_memory\n");
+#added test
+	is (${ $livelink_inst -> read_into_memory ( $livelinkperm."/testdir/test_write_from_memory2.txt") }, $content2, "read from $livelinkperm/testdir/test_write_from_memory2.txt\n");
+	
+
+
+	diag ("\n***copy_local_files tests, includes overwrite tests\n");
+
+
+
+	#set up or copy_local_file test, should overwrite files if exists
+	$livelink_inst ->copy_local_files("$testroot/test_write_from_memory2.txt", "$testroot/test_write_from_memory3.txt");
+#added test
+	is ($livelink_inst->is_fd("$testroot/test_write_from_memory3.txt"),'f', 'confirm creattion of memory 3 file');
+#set up for overwrite test, put original content into write_from_memroy2
+	$livelink_inst ->write_from_memory(\$content, $livelinkperm."/testdir/test_write_from_memory2.txt");
+#added test
+	is (${ $livelink_inst -> read_into_memory($livelinkperm."/testdir/test_write_from_memory2.txt") }, $content, "read from overwritten $livelinkperm/testdir/test_write_from_memory2\n");
+#copy original mem2 content from mem3, using local file, should restore "another"
+	$livelink_inst ->copy_local_files("$testroot/test_write_from_memory3.txt", "$testroot/test_write_from_memory2.txt");
+#added test
+	is (${ $livelink_inst -> read_into_memory($livelinkperm."/testdir/test_write_from_memory2.txt") }, $content2, "$livelinkperm/testdir/test_write_from_memory2.txt should change because copy_local_file overwrites\n");
+
+
+#set up for write_from_memory test to write to exisiting dir, should not proceed
+
+	$livelink_inst ->cust_mkdir($testroot."/nocontent");
+#added test
+	is( $livelink_inst->is_fd("$testroot/nocontent"), 'd', "confirmed created a empty dir where there should be no content added\n");
+	$livelink_inst ->write_from_memory(\$content, $testroot."/nocontent");
+	my @nocontent= $livelink_inst->fdls('', "$testroot/nocontent");
+#added test
+	is (scalar(@nocontent), "0", "write_from_memory did not proceed since dest is dir\n");
+#do the same test for copy_local_files, should not proceed with dest being dir
+
+	$livelink_inst ->copy_local_files("$testroot/test_write_from_memory3.txt", "$testroot/nocontent");
+	@nocontent= $livelink_inst->fdls('', "$testroot/nocontent");
+#added test
+	is (scalar(@nocontent), "0", "copy_local_files did not proceed since dest is dir\n");
+#cleans up memory3, or it will mess up subsequent tests
+	$livelink_inst ->cust_rmdir("$testroot/test_write_from_memory3.txt");
+##added test
+	is( $livelink_inst->is_fd("$testroot/test_write_from_memory3.txt"), 'f', "cust_rmdir does not del files\n");
+	$livelink_inst ->cust_rmfile("$testroot/test_write_from_memory3.txt");
+##added test
+	isnt( $livelink_inst->is_fd("$testroot/test_write_from_memory3.txt"), 'f', "cust_rmfile del files\n");
+#this should show nothing
+	diag "\n\n\nDumper output";
+	diag Dumper ($livelink_inst->fdls('',"$testroot/nocontent"));
+	diag "\nEnd Dumper output\n\n";
+	$livelink_inst ->cust_rmdir("$testroot/nocontent");
+##added test
+	is( $livelink_inst->is_fd("$testroot/nocontent"), 'pd', "successful delete of nocontent dir");
+
+
 	
 	diag ("\n***write_from_mem / read_from_mem, bin mode***\n");
 
@@ -193,8 +260,14 @@ skip 'skipping online tests', 34 if (!$config{'live_tests'});
 	is ($fds[3], "$livelinkperm/testdir/level2",'fdls concat array d0');
 	
 	diag ("\n***copy_local_files test***\n");
+
+	isnt ($livelink_inst->is_fd("$livelinkperm/testdir_copied"), 'd', 'testdir_copied should not exist at this point');
 	
 	$livelink_inst->copy_local_files("$livelinkperm/testdir", "$livelinkperm/testdir_copied");
+	isnt ($livelink_inst->is_fd("$livelinkperm/testdir_copied"), 'd', 'copy_local_files should not create dirs');
+	$livelink_inst->cust_mkdir ("$livelinkperm/testdir_copied");
+	is($livelink_inst->is_fd("$livelinkperm/testdir_copied"), 'd', 'cust_mkdir creates testdir_copied');
+
 	$livelink_inst->copy_local_files("$livelinkperm/testdir/test_write_from_memory2.txt", "$livelinkperm/testdir_copied/test_write_from_memory2.txt");
 	$livelink_inst->copy_local_files("$livelinkperm/testdir/test_write_from_memory2.txt", "$livelinkperm/testdir_copied/test_write_from_memory3.txt");
 	$livelink_inst->copy_local_files("$livelinkperm/testdir/test_write_from_memory2.txt", "$livelinkperm/testdir_phantom/test_write_from_memory2.txt");
@@ -202,22 +275,55 @@ skip 'skipping online tests', 34 if (!$config{'live_tests'});
 	is ($livelink_inst->is_fd("$livelinkperm/testdir_copied/test_write_from_memory3.txt"), "f","copy single file local");
 	$livelink_inst->cust_rmfile("$livelinkperm/testdir_copied/test_write_from_memory3.txt", "deleting file (in testdir_copied) test_write_from_memory3.txt");
 	is ($livelink_inst->is_fd("$livelinkperm/testdir_copied/test_write_from_memory3.txt"),"pd","copy single file local");
-	$livelink_inst->cust_rmdir("$livelinkperm/testdir");
-	$livelink_inst->cust_rmdir("$livelinkperm/testdir_copied");
-	isnt($livelink_inst->is_fd("$livelinkperm/testdir"), "d", "deleted first test dir");
-	isnt($livelink_inst->is_fd("$livelinkperm/testdir_copied"), "d", "deleted second test dir");
-	
-#	diag ("###########\n");
-#	diag ("llddav is[".$livelink_inst->llddav."], test dir is [".$config{livelinkperm}."]\n");
-#	diag Dumper $livelink_inst->fdls('',$config{livelinkperm});
-#	diag ("###########\n");
 
-#    my $content = "somecontent\n";
-# #  use Data::Dumper;
-# #  open my $FH, ">", "diag_withmod";
-#    #print $FH Dumper( $livelink_inst->sp_connect_lwp);   
-#    $livelink_inst -> cust_mkdir ('Shared Documents/script_qc')or clunk();
-# 
+	$livelink_inst->cust_mkdir("$livelinkperm/testdir2");
+	$cpobj->src("$livelinkperm/testdir", $livelink_inst);
+	$cpobj ->dst("$livelinkperm/testdir2", $livelink_inst);
+	$cpobj ->cp;
+	$cpobj ->reset;
+
+
+	$livelink_inst->cust_rmdir("$livelinkperm/testdir");
+	isnt($livelink_inst->is_fd("$livelinkperm/testdir"), "d", "deleted first test dir");
+
+	$cpobj->src("$livelinkperm/testdir2/testdir", $livelink_inst);
+	$cpobj ->dst("$livelinkperm", $livelink_inst);
+	$cpobj ->cp;
+	$livelink_inst->cust_rmdir("$livelinkperm/testdir2");
+	#validate entire tree has been copied back:
+	@files=();
+	@dirs=();
+	@fdarrayrefs=();
+	@fds=();
+
+	@files=$livelink_inst->fdls('f',"$livelinkperm/testdir/");
+	@dirs=$livelink_inst->fdls('d',"$livelinkperm/testdir/");
+	@fdarrayrefs=$livelink_inst->fdls('fdarrayrefs',"$livelinkperm/testdir/");
+	@fds=$livelink_inst->fdls('',"$livelinkperm/testdir/");
+	
+	is ($files[0], "$livelinkperm/testdir/test_write_bin",'fdls f test, f0');
+	is ($files[1], "$livelinkperm/testdir/test_write_from_memory",'fdls f test, f1');
+	is ($files[2], "$livelinkperm/testdir/test_write_from_memory2.txt",'fdls f test, f2');
+	is ($dirs[0], "$livelinkperm/testdir/level2",'fdls d test, d0');
+	is ($fdarrayrefs[0][0], 	"$livelinkperm/testdir/test_write_bin", 'fdls fdarrayref test, f0');
+	is ($fdarrayrefs[0][1], 	"$livelinkperm/testdir/test_write_from_memory", 'fdls fdarrayref test, f1');
+	is ($fdarrayrefs[0][2], 	"$livelinkperm/testdir/test_write_from_memory2.txt", 'fdls fdarrayref test,f2');
+	is ($fdarrayrefs[1][0], 	"$livelinkperm/testdir/level2", 'fdls fdarrayref test,d0');
+
+	is ($fds[0], "$livelinkperm/testdir/test_write_bin", 'fdls concat array f0');
+	is ($fds[1], "$livelinkperm/testdir/test_write_from_memory",'fdls concat array f1');
+	is ($fds[2], "$livelinkperm/testdir/test_write_from_memory2.txt",'fdls concat array f2');
+	is ($fds[3], "$livelinkperm/testdir/level2",'fdls concat array d0');
+
+
+	diag ("\n\n cleaning up...\n\n");
+
+
+	$livelink_inst->cust_rmdir("$livelinkperm/testdir_copied");
+	isnt($livelink_inst->is_fd("$livelinkperm/testdir_copied"), "d", "deleted second test dir");
+
+	
+	
 #    my $path='Shared Documents/script_qc/somepath';
 #    $livelink_inst -> write_from_memory(\$content, $path);
 #    isa_ok (ref $cpobj ->src ($path,$livelink_inst), 'CopyTree::VendorProof', 'src returns self');
